@@ -124,7 +124,7 @@ sudo ufw allow 8001
 sudo iptables -L -n | grep 8001
 ```
 
-**At this point, you have a fully working RumbleDB instance accessible to anyone on your local network.** If that's all you need, you can stop here.
+## **At this point, you have a fully working RumbleDB instance accessible to anyone on your local network.** If that's all you need, you can stop here.
 
 ---
 
