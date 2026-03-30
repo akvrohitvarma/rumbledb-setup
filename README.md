@@ -10,11 +10,14 @@ A guide to running [RumbleDB](https://rumbledb.org/) (a JSONiq engine) inside a 
 - [1. Setting Up the Container](#1-setting-up-the-container)
 - [2. Installing RumbleDB](#2-installing-rumbledb)
 - [3. Running RumbleDB](#3-running-rumbledb)
-- [4. Fixing the Mixed Content Issue](#4-fixing-the-mixed-content-issue)
-- [5. Accessing RumbleDB Over the LAN](#5-accessing-rumbledb-over-the-lan)
-- [6. Exposing RumbleDB to the Internet](#6-exposing-rumbledb-to-the-internet)
-- [Optional: Proxying with Nginx Proxy Manager](#optional-proxying-with-nginx-proxy-manager)
+- [4. Accessing RumbleDB Over the LAN](#4-accessing-rumbledb-over-the-lan)
+- [Optional: Exposing RumbleDB to the Internet](#optional-exposing-rumbledb-to-the-internet)
+  - [5. Fixing the Mixed Content Issue](#5-fixing-the-mixed-content-issue)
+  - [6. Port Forwarding and Public Access](#6-port-forwarding-and-public-access)
+  - [7. Using a Domain Name](#7-using-a-domain-name)
+  - [8. Proxying with Nginx Proxy Manager](#8-proxying-with-nginx-proxy-manager)
 - [Troubleshooting](#troubleshooting)
+- [Quick Reference](#quick-reference)
 
 ---
 
@@ -101,7 +104,41 @@ This gives you a `rumble$` prompt. Useful for quick testing.
 
 ---
 
-## 4. Fixing the Mixed Content Issue
+## 4. Accessing RumbleDB Over the LAN
+
+If Docker is running on a machine at `192.168.0.59`, any device on the same network can access:
+
+```
+http://192.168.0.59:8001/public.html
+```
+
+No additional configuration is needed as long as the port mapping (`-p 8001:8001`) was set when creating the container.
+
+If it's not reachable, check your host machine's firewall:
+
+```bash
+# Ubuntu/Debian
+sudo ufw allow 8001
+
+# Or check iptables
+sudo iptables -L -n | grep 8001
+```
+
+**At this point, you have a fully working RumbleDB instance accessible to anyone on your local network.** If that's all you need, you can stop here.
+
+---
+
+---
+
+# Optional: Exposing RumbleDB to the Internet
+
+Everything below is only necessary if you want people outside your local network to access your RumbleDB instance. This involves patching a mixed content issue in the source, forwarding ports on your router, and optionally setting up a domain with a reverse proxy.
+
+If you only need LAN access, skip everything below.
+
+---
+
+## 5. Fixing the Mixed Content Issue
 
 RumbleDB's built-in `public.html` loads jQuery from an `http://` URL:
 
@@ -109,9 +146,9 @@ RumbleDB's built-in `public.html` loads jQuery from an `http://` URL:
 <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.8.3/jquery.min.js"></script>
 ```
 
-If you ever access the page over HTTPS (directly or through a reverse proxy), the browser will block this script due to mixed content. The Evaluate button will stop working because jQuery never loads.
+If anyone accesses the page over HTTPS (through a reverse proxy, for example), the browser will block this script due to mixed content. The Evaluate button will stop working because jQuery never loads.
 
-Even if you only plan to use HTTP, it's worth fixing this to avoid issues later.
+This must be fixed before exposing RumbleDB over HTTPS. Even if you plan to use HTTP only, patching this is a good idea to avoid surprises later.
 
 ### Patching the JAR
 
@@ -130,7 +167,7 @@ sed -i 's|http://ajax.googleapis.com|https://ajax.googleapis.com|g' assets/publi
 # (Optional) Check for any other http:// references
 grep -i 'http://' assets/public.html
 
-# If there are localhost references and you plan to use a domain, fix those too:
+# If you plan to use a domain with HTTPS, also fix localhost references:
 # sed -i 's|http://localhost:8001|https://yourdomain.com|g' assets/public.html
 
 # Pack the modified file back into the JAR
@@ -151,29 +188,7 @@ java -jar rumbledb.jar --server yes --port 8001 --host 0.0.0.0
 
 ---
 
-## 5. Accessing RumbleDB Over the LAN
-
-If Docker is running on a machine at `192.168.0.59`, any device on the same network can access:
-
-```
-http://192.168.0.59:8001/public.html
-```
-
-No additional configuration is needed as long as the port mapping (`-p 8001:8001`) was set when creating the container.
-
-If it's not reachable, check your host machine's firewall:
-
-```bash
-# Ubuntu/Debian
-sudo ufw allow 8001
-
-# Or check iptables
-sudo iptables -L -n | grep 8001
-```
-
----
-
-## 6. Exposing RumbleDB to the Internet
+## 6. Port Forwarding and Public Access
 
 To let people outside your network access RumbleDB, you need to forward the port on your router.
 
@@ -196,7 +211,13 @@ Find your public IP by visiting [whatismyip.com](https://whatismyip.com) or runn
 http://<your-public-ip>:8001/public.html
 ```
 
-### Optional: Using a Domain Name
+### Static IP Recommendation
+
+Home networks assign IPs dynamically via DHCP. If your Docker host's LAN IP changes, the port forwarding rule breaks. Set a **static IP** or a **DHCP reservation** for your Docker host in your router settings to avoid this.
+
+---
+
+## 7. Using a Domain Name
 
 If you own a domain, create an **A record** pointing a subdomain to your public IP:
 
@@ -206,13 +227,11 @@ If you own a domain, create an **A record** pointing a subdomain to your public 
 
 Then access via `http://json.yourdomain.com:8001/public.html`.
 
-### Static IP Recommendation
-
-Home networks assign IPs dynamically via DHCP. If your Docker host's LAN IP changes, the port forwarding rule breaks. Set a **static IP** or a **DHCP reservation** for your Docker host in your router settings to avoid this.
+To remove the port from the URL, you need a reverse proxy like Nginx Proxy Manager (see next section).
 
 ---
 
-## Optional: Proxying with Nginx Proxy Manager
+## 8. Proxying with Nginx Proxy Manager
 
 If you want to access RumbleDB on a clean URL like `json.yourdomain.com` (without the `:8001` port), you can put it behind [Nginx Proxy Manager](https://nginxproxymanager.com/) (NPM).
 
@@ -230,9 +249,9 @@ This section assumes you already have NPM running. If not, see the [NPM installa
 
 ### SSL Setup
 
-Under the **SSL** tab, you can request a Let's Encrypt certificate. However, be aware that enabling SSL introduces the mixed content problem described in [Section 4](#4-fixing-the-mixed-content-issue). Make sure you have patched the JAR before enabling SSL.
+Under the **SSL** tab, you can request a Let's Encrypt certificate. Make sure you have patched the JAR (Section 5) before enabling SSL, otherwise the mixed content issue will break the page.
 
-If you patched the jQuery URL but the page still has issues with the API endpoint, you may also need to patch the `localhost` references in `assets/public.html`:
+If you patched the jQuery URL but the page still has issues with the API endpoint, you also need to patch the `localhost` references in `assets/public.html`:
 
 ```bash
 sed -i 's|http://localhost:8001|https://json.yourdomain.com|g' assets/public.html
@@ -266,7 +285,7 @@ Add:
 
 This makes local requests resolve directly to the LAN IP instead of going through the router.
 
-### Why `sub_filter` Might Not Work
+### A Note on `sub_filter`
 
 A common approach to fix mixed content in Nginx is to use `sub_filter` directives to rewrite `http://` URLs in the response body. In practice, this often fails with RumbleDB because:
 
@@ -274,7 +293,7 @@ A common approach to fix mixed content in Nginx is to use `sub_filter` directive
 2. Adding `proxy_set_header Accept-Encoding "";` doesn't always force the backend to stop compressing.
 3. The `sub_filter_types` directive may not cover all content types served by RumbleDB.
 
-Patching the JAR directly (as described in Section 4) is the most reliable solution. It fixes the problem at the source rather than trying to rewrite responses on the fly.
+Patching the JAR directly (as described in Section 5) is the most reliable solution. It fixes the problem at the source rather than trying to rewrite responses on the fly.
 
 ---
 
@@ -286,7 +305,7 @@ You're running a Java version other than 8 or 11. Use the `eclipse-temurin:11-jd
 
 ### Page loads but the Evaluate button does nothing
 
-Open your browser's Developer Tools (F12) and check the **Network** tab. If `jquery.min.js` shows as blocked or failed, you have a mixed content issue. Follow [Section 4](#4-fixing-the-mixed-content-issue) to patch the JAR.
+Open your browser's Developer Tools (F12) and check the **Network** tab. If `jquery.min.js` shows as blocked or failed, you have a mixed content issue. Follow [Section 5](#5-fixing-the-mixed-content-issue) to patch the JAR.
 
 ### Container accessible locally but not from other devices
 
